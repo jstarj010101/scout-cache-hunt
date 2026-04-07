@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#7413dc">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Scouts Cache Hunt</title>
+
+<!-- Scouts brand font: Nunito Sans -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+
+<!-- Leaflet map -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set, get, push, onValue, remove }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+// ─────────────────────────────────────────────────────────────
+//  🔧 PASTE YOUR FIREBASE CONFIG HERE
+//
+//  How to get it:
+//  1. console.firebase.google.com → create project
+//  2. Realtime Database → Create database → Start in test mode
+//  3. Project Settings → Your apps → Add web app
+//  4. Copy the firebaseConfig object and paste below
+// ─────────────────────────────────────────────────────────────
+const firebaseConfig = {
+    apiKey: "AIzaSyBm7sTWtNqxpOTVKmcYqm0NURyCAvdMMB4",
+    authDomain: "scouts-geocache.firebaseapp.com",
+    databaseURL: "https://scouts-geocache-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "scouts-geocache",
+    storageBucket: "scouts-geocache.firebasestorage.app",
+    messagingSenderId: "296393708151",
+    appId: "1:296393708151:web:3a26012c451bb8f95fec72"
+  };
+
+
+try {
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+
+  // Expose FB globals immediately — the SDK is initialised synchronously.
+  // Don't gate this on a network round-trip: that causes the intermittent
+  // "not connected" failures on slow connections.
+  window.FB = { db, ref, set, get, push, onValue, remove };
+  window._fbReady = true;
+  console.log('[Firebase] SDK initialised');
+  document.dispatchEvent(new Event('fb-ready'));
+
+  // Monitor actual connection state in the background for the status indicator
+  onValue(ref(db, '.info/connected'), snap => {
+    const connected = snap.val() === true;
+    console.log('[Firebase] connected:', connected);
+    const el = document.getElementById('fb-status');
+    if (el) el.textContent = connected
+      ? '🟢 Connected to Firebase — live sync active'
+      : '🟡 Firebase connecting…';
+    const am = document.getElementById('admin-mode');
+    if (am) am.textContent = connected ? '🟢 Firebase live' : '🟡 Connecting…';
+  });
+} catch(e) {
+  console.warn('[Firebase] Init error:', e.message);
+  window._fbReady = false;
+  window._fbError = e.message;
+  document.dispatchEvent(new Event('fb-ready'));
+}
+</script>
+
+<style>
+/* ══════════════════════════════════════════════════
+   SCOUTS BRAND GUIDELINES — July 2024
+   Core colour: Scouts Purple #7413dc
+   Font: Nunito Sans (Google Fonts)
+   ══════════════════════════════════════════════════ */
+:root {
+  --purple:       #7413dc;
+  --purple-dk:    #5a0fb0;
+  --purple-dkr:   #3d0a7a;
+  --purple-lt:    #9e4fe8;
+  --purple-pale:  rgba(116,19,220,0.15);
+  --teal:         #088486;
+  --teal-dk:      #065f61;
+  --teal-pale:    rgba(8,132,134,0.15);
+  --orange:       #ff912a;
+  --orange-dk:    #cc6a00;
+  --green:        #25b755;
+  --green-dk:     #1a8a3e;
+  --navy:         #003982;
+  --red:          #ed3f23;
+  --yellow:       #ffe627;
+  --white:        #ffffff;
+  --black:        #000000;
+  --g100:         #f4f4f4;
+  --g300:         #bbbbbb;
+  --g500:         #777777;
+  --g800:         #222222;
+
+  /* UI tokens */
+  --bg:           var(--purple-dkr);
+  --surface:      var(--purple-dk);
+  --surface2:     var(--purple);
+  --border:       rgba(255,255,255,0.14);
+  --border-faint: rgba(255,255,255,0.07);
+  --text:         var(--white);
+  --muted:        rgba(255,255,255,0.6);
+  --faint:        rgba(255,255,255,0.35);
+  --accent:       var(--orange);
+  --radius:       12px;
+  --radius-lg:    18px;
+  --shadow:       0 4px 24px rgba(0,0,0,0.35);
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{
+  font-family:'Nunito Sans',sans-serif;
+  font-weight:600;
+  background:var(--bg);
+  color:var(--text);
+}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 70% 50% at 100% 0%,rgba(255,145,42,.1) 0%,transparent 60%),
+    radial-gradient(ellipse 50% 70% at 0% 100%,rgba(8,132,134,.12) 0%,transparent 60%);
+}
+
+/* ── SCREENS ── */
+.screen{position:fixed;inset:0;display:none;flex-direction:column;z-index:10;overflow:hidden}
+.screen.active{display:flex}
+
+/* ── SPINNER ── */
+#screen-loading{align-items:center;justify-content:center;gap:14px}
+.spinner{width:38px;height:38px;border:3px solid rgba(255,255,255,.15);border-top-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── SETUP SCREEN ── */
+#screen-setup{align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+.setup-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px 24px;width:100%;max-width:420px}
+.setup-card h2{font-size:20px;font-weight:900;color:var(--orange);margin-bottom:8px}
+.setup-card>p{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:16px}
+.steps{list-style:none;counter-reset:s;margin-bottom:20px}
+.steps li{counter-increment:s;padding:9px 0 9px 36px;position:relative;font-size:13px;color:var(--muted);border-bottom:1px solid var(--border-faint)}
+.steps li::before{content:counter(s);position:absolute;left:0;top:9px;width:24px;height:24px;background:var(--purple);border-radius:50%;font-size:12px;font-weight:800;color:#fff;display:flex;align-items:center;justify-content:center;line-height:24px;text-align:center}
+.steps li code{background:rgba(0,0,0,.3);border-radius:4px;padding:1px 5px;font-size:11px;color:var(--teal)}
+.demo-note{background:rgba(255,145,42,.12);border:1px solid rgba(255,145,42,.3);border-radius:8px;padding:11px 13px;font-size:12px;color:var(--orange);margin-bottom:16px}
+
+/* ── LOGIN ── */
+#screen-login{align-items:center;justify-content:center;padding:20px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:36px 28px;width:100%;max-width:400px;box-shadow:var(--shadow)}
+.brand{text-align:center;margin-bottom:28px}
+.brand-mark{width:64px;height:64px;background:var(--orange);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:34px;margin:0 auto 10px}
+.brand h1{font-size:27px;font-weight:900;color:#fff;letter-spacing:-.3px}
+.brand .hashtag{font-size:11px;font-weight:800;color:var(--orange);letter-spacing:2.5px;text-transform:uppercase;margin-top:3px}
+
+/* ── FIELDS ── */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:11px;font-weight:800;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px}
+.field input,.field select,.field textarea{
+  width:100%;background:rgba(0,0,0,.25);border:2px solid var(--border);border-radius:10px;
+  padding:12px 14px;font-family:'Nunito Sans',sans-serif;font-size:15px;font-weight:600;
+  color:var(--text);outline:none;transition:border-color .2s,background .2s
+}
+.field input::placeholder,.field textarea::placeholder{color:var(--faint);font-weight:400}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--orange);background:rgba(0,0,0,.35)}
+.field select option{background:var(--purple-dkr)}
+.field textarea{resize:none;min-height:68px}
+
+/* ── BUTTONS ── */
+.btn{display:block;width:100%;padding:14px 20px;border-radius:10px;border:none;font-family:'Nunito Sans',sans-serif;font-size:15px;font-weight:800;cursor:pointer;transition:all .18s;letter-spacing:.2px}
+.btn-primary{background:var(--orange);color:#fff}
+.btn-primary:hover{background:#e07820;transform:translateY(-1px);box-shadow:0 4px 16px rgba(255,145,42,.4)}
+.btn-primary:disabled{background:#9e6030;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-secondary{background:transparent;color:var(--muted);border:2px solid var(--border);margin-top:10px}
+.btn-secondary:hover{border-color:rgba(255,255,255,.3);color:#fff}
+.btn-teal{background:var(--teal);color:#fff}
+.btn-teal:hover{background:var(--teal-dk)}
+.btn-danger{background:var(--red);color:#fff}
+.btn-danger:hover{background:#c02c14}
+.btn-sm{padding:8px 16px;font-size:13px;width:auto;display:inline-block}
+
+/* ── TOPBAR ── */
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:11px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:100;position:relative}
+.topbar::after{content:'';position:absolute;bottom:-3px;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--orange),var(--teal))}
+.tb-brand{display:flex;align-items:center;gap:10px;flex:1}
+.tb-icon{width:34px;height:34px;background:var(--orange);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.tb-title{font-size:17px;font-weight:900;color:#fff;line-height:1.1}
+.tb-sub{font-size:11px;font-weight:700;color:var(--muted)}
+.score-pill{background:var(--orange);color:#fff;border-radius:20px;padding:5px 14px;font-size:13px;font-weight:800;flex-shrink:0}
+
+/* ── BOTTOM NAV ── */
+.bottom-nav{background:var(--surface);border-top:1px solid var(--border);display:flex;flex-shrink:0}
+.nav-btn{flex:1;padding:10px 4px 12px;background:none;border:none;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:'Nunito Sans',sans-serif;font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;transition:color .2s;position:relative}
+.nav-btn .ni{font-size:22px;line-height:1}
+.nav-btn.active{color:var(--orange)}
+.nav-btn.active::before{content:'';position:absolute;top:0;left:20%;right:20%;height:2px;background:var(--orange);border-radius:0 0 3px 3px}
+
+/* ── TABS ── */
+.tab-content{display:none;flex:1;overflow:hidden;flex-direction:column}
+.tab-content.active{display:flex}
+
+/* ── MAP ── */
+#leaflet-map{width:100%;height:100%}
+.map-bar{background:var(--surface);border-top:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.map-bar span{font-size:12px;font-weight:700;color:var(--muted)}
+.map-bar strong{color:var(--orange)}
+
+/* ── CACHE LIST ── */
+#caches-list{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:9px}
+.cache-card{background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);padding:14px 14px 14px 18px;cursor:pointer;transition:all .18s;position:relative;overflow:hidden}
+.cache-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--orange);border-radius:4px 0 0 4px}
+.cache-card.found::before{background:var(--green)}
+.cache-card:hover{border-color:rgba(255,255,255,.28);transform:translateX(2px)}
+.found-tag{position:absolute;top:12px;right:12px;background:var(--green);color:#fff;font-size:10px;font-weight:800;letter-spacing:.8px;padding:3px 8px;border-radius:4px;text-transform:uppercase}
+.c-name{font-size:16px;font-weight:900;color:#fff;margin-bottom:5px}
+.c-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--muted)}
+.c-tag{background:rgba(255,255,255,.08);border-radius:4px;padding:2px 7px}
+.c-preview{font-size:12px;color:var(--faint);margin-top:7px;font-style:italic;line-height:1.5}
+.dots{display:flex;gap:4px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.18)}
+.dot.on{background:var(--orange)}
+
+/* ── MODAL ── */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:flex-end;backdrop-filter:blur(6px)}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:22px 22px 0 0;width:100%;max-height:88vh;overflow-y:auto;padding:8px 24px 36px;animation:slideUp .28s cubic-bezier(.34,1.4,.64,1)}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 20px}
+.modal-hdr{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px}
+.modal-ico{width:44px;height:44px;border-radius:10px;background:var(--orange);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px}
+.modal-name{font-size:20px;font-weight:900;color:#fff;line-height:1.2}
+.modal-pts{font-size:13px;font-weight:700;color:var(--orange);margin-top:2px}
+.modal-sec{margin-bottom:18px}
+.modal-sec h3{font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+.clue-box{background:rgba(255,145,42,.1);border:2px solid rgba(255,145,42,.28);border-radius:10px;padding:14px;font-size:14px;font-weight:600;color:#fff;line-height:1.6;font-style:italic}
+.gps-card{background:rgba(0,0,0,.2);border:1px solid var(--border);border-radius:10px;padding:13px;display:flex;align-items:center;gap:12px}
+.gps-dot{width:13px;height:13px;border-radius:50%;background:var(--g500);flex-shrink:0;transition:background .4s}
+.gps-dot.near{background:var(--orange);animation:pulse 1s infinite}
+.gps-dot.close{background:var(--green);animation:pulse .5s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+.gps-lbl{font-size:12px;font-weight:700;color:var(--muted)}
+.gps-dist{font-size:22px;font-weight:900;color:#fff;margin-top:2px}
+.found-note{font-size:11px;font-weight:700;color:var(--faint);text-align:center;margin-top:6px}
+
+/* ── LEADERBOARD ── */
+#leaderboard{flex:1;overflow-y:auto}
+.lb-hero{background:linear-gradient(135deg,var(--purple) 0%,var(--teal-dk) 100%);padding:20px 16px 16px;text-align:center}
+.lb-hero h2{font-size:22px;font-weight:900}
+.lb-hero p{font-size:13px;color:var(--muted);font-weight:700;margin-top:4px}
+#lb-list{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.lb-row{background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;gap:12px;transition:all .18s}
+.lb-row.me{border-color:var(--orange);background:rgba(255,145,42,.08)}
+.lb-rank{font-size:20px;font-weight:900;width:30px;text-align:center;flex-shrink:0}
+.lb-av{width:36px;height:36px;border-radius:50%;background:var(--purple);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900;color:#fff;border:2px solid var(--border)}
+.lb-name{font-size:15px;font-weight:800}
+.lb-patrol{font-size:11px;font-weight:700;color:var(--muted);margin-top:1px}
+.lb-right{margin-left:auto;text-align:right}
+.lb-pts{font-size:20px;font-weight:900;color:var(--orange)}
+.lb-found{font-size:11px;font-weight:700;color:var(--muted)}
+
+/* ── ADMIN ── */
+#admin-inner{flex:1;overflow-y:auto;padding:12px}
+.a-sec{margin-bottom:20px}
+.a-sec-title{font-size:12px;font-weight:800;color:var(--orange);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.stat-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center}
+.stat-num{font-size:30px;font-weight:900;color:var(--orange)}
+.stat-lbl{font-size:10px;font-weight:800;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+.a-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:15px;margin-bottom:8px}
+.a-cache-row{display:flex;align-items:flex-start;gap:10px}
+.a-cache-info{flex:1;min-width:0}
+.a-cache-name{font-size:14px;font-weight:800;margin-bottom:3px}
+.a-cache-detail{font-size:11px;font-weight:700;color:var(--muted)}
+.a-cache-clue{font-size:11px;color:var(--faint);font-style:italic;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.del-btn{background:rgba(237,63,35,.15);border:1px solid rgba(237,63,35,.3);border-radius:8px;padding:8px 10px;cursor:pointer;font-size:16px;color:var(--red);transition:all .2s;flex-shrink:0}
+.del-btn:hover{background:rgba(237,63,35,.3)}
+.loc-btn{background:var(--teal-pale);border:1px solid rgba(8,132,134,.4);color:var(--teal);border-radius:8px;padding:8px 12px;font-family:'Nunito Sans',sans-serif;font-size:12px;font-weight:800;cursor:pointer;display:block;width:100%;margin-top:8px;transition:all .2s;text-align:center}
+.loc-btn:hover{background:rgba(8,132,134,.25)}
+.form-row{display:flex;gap:10px}
+.form-row .field{flex:1}
+.find-row{padding:9px 0;border-bottom:1px solid var(--border-faint);display:flex;gap:10px;font-size:12px}
+.find-row:last-child{border-bottom:none}
+.find-time{color:var(--faint);font-weight:700;flex-shrink:0;min-width:40px}
+.find-body{flex:1;color:var(--muted);line-height:1.5}
+.find-body strong{color:#fff;font-weight:800}
+.first-pill{display:inline-block;background:var(--orange);color:#fff;font-size:10px;font-weight:800;border-radius:4px;padding:1px 6px;margin-left:4px;letter-spacing:.5px}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:88px;left:50%;transform:translateX(-50%) translateY(16px);background:#1a1a2e;border:1px solid var(--border);border-left:4px solid var(--orange);border-radius:10px;padding:12px 20px;font-size:14px;font-weight:700;color:#fff;z-index:1000;opacity:0;pointer-events:none;transition:all .3s cubic-bezier(.34,1.4,.64,1);white-space:nowrap;max-width:calc(100vw - 40px)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── EMPTY STATE ── */
+.empty{text-align:center;padding:40px 20px;color:var(--muted)}
+.empty .ei{font-size:44px;margin-bottom:10px}
+.empty p{font-size:14px;font-weight:700;line-height:1.5}
+
+
+/* ── LOCATE BUTTON ── */
+.locate-btn{position:absolute;bottom:56px;right:12px;z-index:1000;width:40px;height:40px;background:var(--surface);border:2px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3);transition:all .2s}
+.locate-btn:hover{border-color:var(--orange);transform:scale(1.05)}
+.locate-btn.active{border-color:var(--orange);background:rgba(255,145,42,.15)}
+/* ── OFFLINE BANNER ── */
+.offline-bar{display:none;background:var(--red);color:#fff;font-size:12px;font-weight:800;padding:7px 16px;text-align:center;letter-spacing:.3px;flex-shrink:0;z-index:200}
+.offline-bar.show{display:block}
+.sync-bar{display:none;background:var(--teal);color:#fff;font-size:12px;font-weight:800;padding:7px 16px;text-align:center;flex-shrink:0;z-index:200}
+.sync-bar.show{display:block}
+.tile-progress{background:rgba(0,0,0,.25);border-radius:6px;height:6px;margin-top:8px;overflow:hidden}
+.tile-progress-inner{height:100%;background:var(--orange);border-radius:6px;width:0%;transition:width .3s}
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="screen-loading" class="screen active">
+  <div class="spinner"></div>
+  <div style="font-size:13px;font-weight:700;color:var(--muted)">Connecting…</div>
+</div>
+
+<!-- SETUP (shown when Firebase not configured) -->
+<div id="screen-setup" class="screen">
+  <div style="flex:1;overflow-y:auto;display:flex;align-items:center;justify-content:center;padding:20px">
+    <div class="setup-card">
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-size:40px;margin-bottom:8px">⚜️</div>
+        <h2>Connect Firebase</h2>
+      </div>
+      <div class="demo-note">
+        ℹ️ Running in <strong>demo mode</strong> — data is local to this device only.
+        Connect Firebase so all 30 scouts share live data.
+      </div>
+      <p>Firebase gives you a real-time database so finds, scores and caches sync across every phone instantly — for free at this scale.</p>
+      <ol class="steps">
+        <li>Go to <code>console.firebase.google.com</code> and create a project</li>
+        <li>Choose <strong>Realtime Database</strong> → Start in test mode</li>
+        <li>Project Settings → Your apps → Add web app → copy config</li>
+        <li>Open this HTML file and paste your config into the <code>&lt;script type="module"&gt;</code> block at the top</li>
+        <li>Replace the <code>YOUR_*</code> placeholders with your real values and reload</li>
+      </ol>
+      <div id="diag-msg" style="display:none;background:rgba(237,63,35,.12);border:1px solid rgba(237,63,35,.4);border-radius:8px;padding:11px 13px;font-size:12px;font-weight:700;color:#ed3f23;margin-bottom:14px;line-height:1.5"></div>
+      <button class="btn btn-primary" onclick="startDemo()">Continue in Demo Mode →</button>
+      <p style="font-size:11px;color:var(--faint);text-align:center;margin-top:10px">Demo mode stores data in this browser only</p>
+    </div>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div id="screen-login" class="screen">
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
+    <div class="login-card">
+      <div class="brand">
+        <div class="brand-mark" style="background:none;width:auto;height:auto"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="64" height="64" style="display:block;margin:0 auto">
+  <rect width="80" height="80" rx="16" fill="#ff912a"/>
+  <g fill="#fff">
+    <!-- fleur-de-lis centre petal -->
+    <path d="M40 8 C36 16 34 22 34 30 C34 36 37 40 40 42 C43 40 46 36 46 30 C46 22 44 16 40 8Z"/>
+    <!-- left petal -->
+    <path d="M22 20 C26 24 30 28 32 34 C28 32 24 32 20 34 C20 28 20 24 22 20Z"/>
+    <!-- right petal -->
+    <path d="M58 20 C56 24 56 28 60 34 C56 32 52 32 48 34 C50 28 54 24 58 20Z"/>
+    <!-- base knot -->
+    <path d="M33 42 L32 50 L40 46 L48 50 L47 42 C44 44 43 45 40 45 C37 45 36 44 33 42Z"/>
+    <!-- scroll base -->
+    <path d="M28 52 C28 56 30 58 34 58 L40 56 L46 58 C50 58 52 56 52 52 L48 52 C48 54 46 55 44 54 L40 53 L36 54 C34 55 32 54 32 52Z"/>
+  </g>
+</svg></div>
+        <h1>Cache Hunt</h1>
+        <div class="hashtag">#SkillsForLife</div>
+      </div>
+      <div class="field">
+        <label>Your name</label>
+        <input type="text" id="login-name" placeholder="e.g. Jamie" autocomplete="off" maxlength="30">
+      </div>
+      <div class="field">
+        <label>Patrol or group</label>
+        <input type="text" id="login-patrol" placeholder="e.g. Eagle Patrol · 1st Boxford" autocomplete="off" maxlength="50">
+      </div>
+      <button class="btn btn-primary" onclick="loginScout()">Join the Hunt →</button>
+      <button class="btn btn-secondary" onclick="promptLeader()">Leader / Admin access</button>
+      <div id="fb-status" style="text-align:center;margin-top:14px;font-size:11px;font-weight:700;color:var(--faint)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- SCOUT APP -->
+<div id="screen-scout" class="screen">
+
+  <!-- offline/sync status -->
+  <div class="offline-bar" id="offline-bar">📵 You're offline — finds will sync when you reconnect</div>
+  <div class="sync-bar" id="sync-bar">🔄 Back online — syncing finds…</div>
+  <div class="topbar">
+    <div class="tb-brand">
+      <div class="tb-icon" style="background:none;padding:0;overflow:hidden"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="34" height="34" style="display:block">
+  <rect width="80" height="80" rx="10" fill="#ff912a"/>
+  <g fill="#fff">
+    <path d="M40 8 C36 16 34 22 34 30 C34 36 37 40 40 42 C43 40 46 36 46 30 C46 22 44 16 40 8Z"/>
+    <path d="M22 20 C26 24 30 28 32 34 C28 32 24 32 20 34 C20 28 20 24 22 20Z"/>
+    <path d="M58 20 C56 24 56 28 60 34 C56 32 52 32 48 34 C50 28 54 24 58 20Z"/>
+    <path d="M33 42 L32 50 L40 46 L48 50 L47 42 C44 44 43 45 40 45 C37 45 36 44 33 42Z"/>
+    <path d="M28 52 C28 56 30 58 34 58 L40 56 L46 58 C50 58 52 56 52 52 L48 52 C48 54 46 55 44 54 L40 53 L36 54 C34 55 32 54 32 52Z"/>
+  </g>
+</svg></div>
+      <div>
+        <div class="tb-title">Cache Hunt</div>
+        <div class="tb-sub" id="tb-sub">Scouts</div>
+      </div>
+    </div>
+    <div class="score-pill" id="score-pill">0 pts</div>
+  </div>
+
+  <!-- MAP TAB -->
+  <div id="tab-map" class="tab-content active" style="position:relative">
+    <div id="leaflet-map" style="flex:1"></div>
+    <button class="locate-btn" id="locate-btn" onclick="centreOnMe()" title="Centre map on my location">📍</button>
+    <div id="tile-cache-bar" style="background:var(--surface);border-top:1px solid var(--border);padding:8px 12px;flex-shrink:0;display:none"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px" id="tile-cache-label">📥 Cache map tiles for offline use</div><div class="tile-progress"><div class="tile-progress-inner" id="tile-progress-inner"></div></div></div>
+<div class="map-bar">
+      <span>📍 <strong id="gps-acc">finding you…</strong></span><button onclick="startTileCache()" style="background:var(--teal);border:none;border-radius:6px;padding:4px 10px;font-family:'Nunito Sans',sans-serif;font-size:11px;font-weight:800;color:#fff;cursor:pointer" id="cache-tiles-btn" title="Download map for offline use">📥 Save map</button>
+      <span>🎯 <strong id="found-count">0</strong> / <strong id="total-count">0</strong> found</span>
+    </div>
+  </div>
+
+  <!-- CACHES TAB -->
+  <div id="tab-caches" class="tab-content">
+    <div id="caches-list"></div>
+  </div>
+
+  <!-- LEADERBOARD TAB -->
+  <div id="tab-leaderboard" class="tab-content">
+    <div id="leaderboard">
+      <div class="lb-hero">
+        <h2>🏆 Leaderboard</h2>
+        <p id="lb-sub">Live rankings</p>
+      </div>
+      <div id="lb-list"></div>
+    </div>
+  </div>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" onclick="switchTab('map',this)"><span class="ni">🗺️</span>Map</button>
+    <button class="nav-btn" onclick="switchTab('caches',this)"><span class="ni">📋</span>Caches</button>
+    <button class="nav-btn" onclick="switchTab('leaderboard',this)"><span class="ni">🏆</span>Scores</button>
+    <button class="nav-btn" onclick="logout()"><span class="ni">🚪</span>Exit</button>
+  </nav>
+</div>
+
+<!-- ADMIN -->
+<div id="screen-admin" class="screen">
+
+  <!-- offline/sync status -->
+  <div class="offline-bar" id="offline-bar">📵 You're offline — finds will sync when you reconnect</div>
+  <div class="sync-bar" id="sync-bar">🔄 Back online — syncing finds…</div>
+  <div class="topbar">
+    <div class="tb-brand">
+      <div class="tb-icon">⚙️</div>
+      <div>
+        <div class="tb-title">Leader Panel</div>
+        <div class="tb-sub" id="admin-mode">Admin</div>
+      </div>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="logout()" style="flex-shrink:0">Exit</button>
+  </div>
+  <div id="admin-inner">
+
+    <div class="a-sec">
+      <div class="a-sec-title">📊 Live Stats</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num" id="s-scouts">0</div><div class="stat-lbl">Scouts</div></div>
+        <div class="stat-box"><div class="stat-num" id="s-finds">0</div><div class="stat-lbl">Finds</div></div>
+        <div class="stat-box"><div class="stat-num" id="s-caches">0</div><div class="stat-lbl">Caches</div></div>
+        <div class="stat-box"><div class="stat-num" id="s-pct">0%</div><div class="stat-lbl">Done</div></div>
+      </div>
+    </div>
+
+    <div class="a-sec">
+      <div class="a-sec-title">⚡ Recent Finds</div>
+      <div class="a-card" id="recent-list">
+        <div class="empty"><div class="ei">🔍</div><p>The hunt is on!</p></div>
+      </div>
+    </div>
+
+    <div class="a-sec">
+      <div class="a-sec-title">📍 Caches Placed</div>
+      <div id="admin-cache-list"></div>
+    </div>
+
+    <div class="a-sec">
+      <div class="a-sec-title">➕ Hide a New Cache</div>
+      <div class="a-card">
+        <div class="field"><label>Cache name</label><input type="text" id="new-name" placeholder="e.g. The Old Oak" maxlength="50"></div>
+        <div class="field"><label>Clue for scouts</label><textarea id="new-clue" placeholder="Where the shadows meet the stones at noon…"></textarea></div>
+        <div class="form-row">
+          <div class="field"><label>Latitude</label><input type="number" id="new-lat" placeholder="51.5074" step="0.000001"></div>
+          <div class="field"><label>Longitude</label><input type="number" id="new-lng" placeholder="-0.1278" step="0.000001"></div>
+        </div>
+        <button class="loc-btn" onclick="useMyLocation()">📍 Use my current location</button>
+        <div class="form-row" style="margin-top:12px">
+          <div class="field"><label>Difficulty</label>
+            <select id="new-diff"><option value="1">⭐ Easy</option><option value="2">⭐⭐ Medium</option><option value="3">⭐⭐⭐ Hard</option></select>
+          </div>
+          <div class="field"><label>Points</label>
+            <select id="new-pts"><option value="10">10</option><option value="20">20</option><option value="30">30</option><option value="50">50 🌟</option></select>
+          </div>
+        </div>
+        <button class="btn btn-teal" style="margin-top:14px" onclick="addCache()">Hide This Cache</button>
+      </div>
+    </div>
+
+    <div class="a-sec">
+      <div class="a-sec-title">🔴 Event Control</div>
+      <div class="a-card">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Reset clears all finds and scores but keeps caches in place.</p>
+        <button class="btn btn-danger" style="margin-bottom:8px" onclick="resetAllFinds()">Reset All Finds</button>
+        <button class="btn btn-secondary" onclick="clearAllCaches()">Delete All Caches</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CACHE DETAIL MODAL -->
+<div id="cache-modal" class="overlay" onclick="maybeClose(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-hdr">
+      <div class="modal-ico" id="m-ico">🎯</div>
+      <div>
+        <div class="modal-name" id="m-name">—</div>
+        <div class="modal-pts" id="m-pts">—</div>
+      </div>
+    </div>
+    <div class="modal-sec">
+      <h3>Your Clue</h3>
+      <div class="clue-box" id="m-clue">—</div>
+    </div>
+    <div class="modal-sec">
+      <h3>Distance</h3>
+      <div class="gps-card">
+        <div class="gps-dot" id="m-dot"></div>
+        <div>
+          <div class="gps-lbl" id="m-lbl">Finding your location…</div>
+          <div class="gps-dist" id="m-dist">—</div>
+        </div>
+      </div>
+    </div>
+    <div id="m-log-sec" class="modal-sec">
+      <h3>Log your find — add a note (optional)</h3>
+      <div class="field"><textarea id="log-note" placeholder="What was it like finding this one?"></textarea></div>
+    </div>
+    <button class="btn btn-primary" id="found-btn" onclick="logFind()" disabled>📍 Too far away</button>
+    <div class="found-note" id="found-note">Move within 15 metres to unlock</div>
+    <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+let fbMode      = false;
+let demoMode    = false;
+let currentScout= null;
+let leafMap     = null;
+let mapMarkers  = {};
+let gpsWatchId  = null;
+let myPos       = null;
+let activeCacheId = null;
+
+let caches  = [];
+let finds   = [];
+let scouts  = [];
+
+// ═══════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════
+(function boot() {
+  function onFbResult() {
+    if (window._fbReady && window.FB) {
+      fbMode = true;
+      listenFirebase();
+      // Live status updated by .info/connected listener in the module block
+      showScreen('login');
+    } else {
+      const diag = document.getElementById('diag-msg');
+      if (diag) {
+        diag.style.display = 'block';
+        diag.textContent = '❌ Firebase failed to initialise: ' +
+          (window._fbError || 'unknown error') +
+          '. Check your config and that your browser can reach gstatic.com.';
+      }
+      showScreen('setup');
+    }
+  }
+
+  // FB module sets window._fbReady synchronously before dispatching the event,
+  // so by the time this inline script runs it's usually already set.
+  if (typeof window._fbReady !== 'undefined') {
+    onFbResult();
+    return;
+  }
+  // Safety net
+  document.addEventListener('fb-ready', onFbResult, { once: true });
+  setTimeout(() => {
+    if (!document.getElementById('screen-login').classList.contains('active') &&
+        !document.getElementById('screen-setup').classList.contains('active')) {
+      window._fbError = window._fbError || 'SDK load timeout';
+      onFbResult();
+    }
+  }, 8000);
+})();
+
+function startDemo() {
+  demoMode = true;
+  lsLoad();
+  setFbStatus('🟡 Demo mode — data stays on this device');
+  showScreen('login');
+}
+
+function setFbStatus(msg) {
+  const el = document.getElementById('fb-status');
+  if (el) el.textContent = msg;
+  const am = document.getElementById('admin-mode');
+  if (am) am.textContent = fbMode ? '🟢 Firebase live' : '🟡 Demo mode';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  FIREBASE REALTIME LISTENERS
+// ═══════════════════════════════════════════════════════════════
+function listenFirebase() {
+  const { db, ref, onValue } = window.FB;
+  onValue(ref(db,'caches'), snap => {
+    caches = [];
+    snap.forEach(c => caches.push({ id:c.key, ...c.val() }));
+    refresh();
+  });
+  onValue(ref(db,'finds'), snap => {
+    finds = [];
+    snap.forEach(f => finds.push({ id:f.key, ...f.val() }));
+    refresh();
+  });
+  onValue(ref(db,'scouts'), snap => {
+    scouts = [];
+    snap.forEach(s => scouts.push({ id:s.key, ...s.val() }));
+    refresh();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  LOCALSTORAGE (demo mode)
+// ═══════════════════════════════════════════════════════════════
+const LS = 'scouts_cache_v3';
+function lsLoad() {
+  try {
+    const d = JSON.parse(localStorage.getItem(LS)) || {};
+    caches  = d.caches  || sampleCaches();
+    finds   = d.finds   || [];
+    scouts  = d.scouts  || [];
+  } catch { caches=sampleCaches(); finds=[]; scouts=[]; }
+}
+function lsSave() {
+  try { localStorage.setItem(LS, JSON.stringify({caches,finds,scouts})); } catch {}
+}
+function sampleCaches() {
+  return [
+    {id:'c1',name:'The Knotted Pine',lat:51.5080,lng:-0.1280,clue:'Seek the tree that bears three knots at eye level, where roots grip stone.',difficulty:2,points:20},
+    {id:'c2',name:'Brook Crossing',lat:51.5095,lng:-0.1250,clue:'Where water meets stone and stepping feet pause to consider their next move.',difficulty:1,points:10},
+    {id:'c3',name:'Hilltop Sentinel',lat:51.5060,lng:-0.1310,clue:'The highest point offers the widest view. Look north, then look down.',difficulty:3,points:30}
+  ];
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DATA WRITE HELPERS
+// ═══════════════════════════════════════════════════════════════
+async function writeScout(s) {
+  if (fbMode) { const {db,ref,set}=window.FB; await set(ref(db,`scouts/${s.id}`),s); }
+  else { const i=scouts.findIndex(x=>x.id===s.id); if(i>=0)scouts[i]=s; else scouts.push(s); lsSave(); }
+}
+async function writeCache(c) {
+  if (fbMode) { const {db,ref,set}=window.FB; await set(ref(db,`caches/${c.id}`),c); }
+  else { const i=caches.findIndex(x=>x.id===c.id); if(i>=0)caches[i]=c; else caches.push(c); lsSave(); }
+}
+async function writeFind(f) {
+  if (fbMode) { const {db,ref,push,set}=window.FB; const r=push(ref(db,'finds')); f.id=r.key; await set(r,f); }
+  else { f.id='f'+Date.now(); finds.push(f); lsSave(); refresh(); }
+}
+async function dbDeleteCache(id) {
+  if (fbMode) {
+    const {db,ref,remove}=window.FB;
+    await remove(ref(db,`caches/${id}`));
+    const toRm=finds.filter(f=>f.cacheId===id);
+    for(const f of toRm) await remove(ref(db,`finds/${f.id}`));
+  } else { caches=caches.filter(c=>c.id!==id); finds=finds.filter(f=>f.cacheId!==id); lsSave(); refresh(); }
+}
+async function dbResetFinds() {
+  if (fbMode) { const {db,ref,remove}=window.FB; await remove(ref(db,'finds')); }
+  else { finds=[]; lsSave(); refresh(); }
+}
+async function dbClearAll() {
+  if (fbMode) {
+    const {db,ref,remove}=window.FB;
+    await remove(ref(db,'caches'));
+    await remove(ref(db,'finds'));
+  } else { caches=[]; finds=[]; lsSave(); refresh(); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AUTH
+// ═══════════════════════════════════════════════════════════════
+async function loginScout() {
+  const name   = document.getElementById('login-name').value.trim();
+  const patrol = document.getElementById('login-patrol').value.trim();
+  if (!name) { toast('Please enter your name!'); return; }
+  let scout = scouts.find(s => s.name.toLowerCase()===name.toLowerCase() && s.patrol===patrol);
+  if (!scout) {
+    scout = { id:'s'+Date.now(), name, patrol };
+    await writeScout(scout);
+    if (!fbMode) scouts.push(scout);
+  }
+  currentScout = scout;
+  setText('tb-sub', patrol || 'Scouts');
+  showScoutApp();
+}
+
+function promptLeader() {
+  const pw = prompt('Leader password:');
+  if (pw === 'leader123') {
+    setFbStatus(fbMode ? '🟢 Firebase live' : '🟡 Demo mode');
+    document.getElementById('admin-mode').textContent = fbMode ? '🟢 Firebase live' : '🟡 Demo mode';
+    showScreen('admin');
+    refreshAdmin();
+  } else if (pw !== null) {
+    toast('Incorrect password. (Hint: leader123)');
+  }
+}
+
+function logout() {
+  currentScout = null;
+  stopGPS();
+  if (leafMap) { leafMap.remove(); leafMap=null; mapMarkers={}; window.myLocMarker=null; }
+  showScreen('login');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SCREENS & TABS
+// ═══════════════════════════════════════════════════════════════
+function showScreen(n) {
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+n).classList.add('active');
+}
+function showScoutApp() {
+  showScreen('scout');
+  initMap();
+  refresh();
+  startGPS();
+}
+function switchTab(n, btn) {
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+n).classList.add('active');
+  btn.classList.add('active');
+  if (n==='map') setTimeout(()=>leafMap&&leafMap.invalidateSize(),80);
+  refresh();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MAP
+// ═══════════════════════════════════════════════════════════════
+// Tracestrack API key — hoisted so tileUrls() can also access it
+const TRACESTRACK_KEY = '733688602f08715a12b8ed255df1d9c7'; // ← paste your key from console.tracestrack.com if this stops working
+
+function initMap() {
+  if (leafMap) return;
+  const c = caches.length ? [caches[0].lat,caches[0].lng] : [51.508,-0.128];
+  leafMap = L.map('leaflet-map',{zoomControl:true,attributionControl:false}).setView(c,15);
+
+  L.tileLayer(`https://tile.tracestrack.com/topo_en/{z}/{x}/{y}.png?key=${TRACESTRACK_KEY}`, {
+    maxZoom: 18,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> © <a href="https://tracestrack.com/">Tracestrack</a>'
+  }).addTo(leafMap);
+  caches.forEach(putMarker);
+}
+function putMarker(cache) {
+  if (!leafMap) return;
+  const found = iFound(cache.id);
+  const icon = L.divIcon({
+    className:'',
+    html:`<div style="width:34px;height:34px;background:${found?'#25b755':'#ff912a'};border:2.5px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 10px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center"><span style="transform:rotate(45deg);font-size:14px;line-height:30px;display:block;text-align:center">${found?'✓':'⚜️'}</span></div>`,
+    iconSize:[34,34],iconAnchor:[17,34]
+  });
+  if (mapMarkers[cache.id]) { mapMarkers[cache.id].setIcon(icon); }
+  else {
+    const m = L.marker([cache.lat,cache.lng],{icon}).addTo(leafMap).on('click',()=>openModal(cache.id));
+    mapMarkers[cache.id] = m;
+  }
+}
+function syncMarkers() {
+  if (!leafMap) return;
+  caches.forEach(putMarker);
+  Object.keys(mapMarkers).forEach(id=>{ if(!caches.find(c=>c.id===id)){ leafMap.removeLayer(mapMarkers[id]); delete mapMarkers[id]; } });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GPS
+// ═══════════════════════════════════════════════════════════════
+function startGPS() {
+  if (!navigator.geolocation) return;
+  gpsWatchId = navigator.geolocation.watchPosition(pos=>{
+    myPos={lat:pos.coords.latitude,lng:pos.coords.longitude};
+    const acc=Math.round(pos.coords.accuracy);
+    setText('gps-acc','±'+acc+'m');
+    if (leafMap) {
+      if (!window.myLocMarker) {
+        window.myLocMarker=L.circleMarker([myPos.lat,myPos.lng],{radius:9,color:'#7413dc',fillColor:'#ff912a',fillOpacity:.9,weight:3}).addTo(leafMap);
+      } else { window.myLocMarker.setLatLng([myPos.lat,myPos.lng]); }
+    }
+    updateModalDist();
+  },()=>setText('gps-acc','unavailable'),{enableHighAccuracy:true,maximumAge:3000});
+}
+function stopGPS() {
+  if (gpsWatchId) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId=null; }
+}
+function centreOnMe() {
+  const btn = document.getElementById('locate-btn');
+  if (myPos && leafMap) {
+    leafMap.setView([myPos.lat, myPos.lng], 17, {animate: true});
+    if (btn) { btn.classList.add('active'); setTimeout(() => btn.classList.remove('active'), 1500); }
+    return;
+  }
+  // No position yet — request it explicitly
+  if (btn) btn.textContent = '⏳';
+  navigator.geolocation.getCurrentPosition(pos => {
+    myPos = {lat: pos.coords.latitude, lng: pos.coords.longitude};
+    if (leafMap) leafMap.setView([myPos.lat, myPos.lng], 17, {animate: true});
+    if (btn) { btn.textContent = '📍'; btn.classList.add('active'); setTimeout(() => btn.classList.remove('active'), 1500); }
+  }, () => {
+    if (btn) btn.textContent = '📍';
+    toast('Could not get your location — check GPS is enabled');
+  }, {enableHighAccuracy: true, timeout: 8000});
+}
+
+function dist(lat1,lng1,lat2,lng2) {
+  const R=6371000,dL=(lat2-lat1)*Math.PI/180,dG=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dL/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dG/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  REFRESH / RENDER
+// ═══════════════════════════════════════════════════════════════
+function refresh() {
+  const scoutOn = document.getElementById('screen-scout').classList.contains('active');
+  const adminOn = document.getElementById('screen-admin').classList.contains('active');
+  if (scoutOn) {
+    syncMarkers();
+    renderCacheList();
+    renderLeaderboard();
+    const fc=caches.filter(c=>iFound(c.id)).length;
+    setText('found-count',fc); setText('total-count',caches.length);
+    setText('score-pill',myScore()+' pts');
+  }
+  if (adminOn) refreshAdmin();
+}
+
+// HELPERS
+function iFound(id) { return currentScout && finds.some(f=>f.scoutId===currentScout.id&&f.cacheId===id); }
+function cacheFinds(id) { return finds.filter(f=>f.cacheId===id).length; }
+function myScore() { return currentScout ? finds.filter(f=>f.scoutId===currentScout.id).reduce((s,f)=>s+(f.points||0),0) : 0; }
+function renderDots(n) {
+  return `<div class="dots">${[1,2,3].map(i=>`<div class="dot${i<=n?' on':''}"></div>`).join('')}</div>`;
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function setText(id,v) { const el=document.getElementById(id); if(el) el.textContent=v; }
+
+// CACHE LIST
+function renderCacheList() {
+  const el=document.getElementById('caches-list'); if(!el) return;
+  if (!caches.length) { el.innerHTML=`<div class="empty"><div class="ei">🔍</div><p>No caches placed yet.<br>Your leader is hiding them now!</p></div>`; return; }
+  el.innerHTML = caches.map(c=>{
+    const f=iFound(c.id);
+    return `<div class="cache-card${f?' found':''}" onclick="openModal('${c.id}')">
+      ${f?'<div class="found-tag">✓ Found</div>':''}
+      <div class="c-name">${esc(c.name)}</div>
+      <div class="c-meta">
+        <span class="c-tag">${renderDots(c.difficulty)}</span>
+        <span class="c-tag">🎁 ${c.points} pts</span>
+        <span class="c-tag">👁 ${cacheFinds(c.id)} found</span>
+      </div>
+      <div class="c-preview">"${esc(c.clue.slice(0,65))}${c.clue.length>65?'…':''}"</div>
+    </div>`;
+  }).join('');
+}
+
+// LEADERBOARD
+function renderLeaderboard() {
+  const el=document.getElementById('lb-list'); if(!el) return;
+  const scores={};
+  scouts.forEach(s=>{ scores[s.id]={scout:s,pts:0,found:0}; });
+  finds.forEach(f=>{
+    if(!scores[f.scoutId]) scores[f.scoutId]={scout:{id:f.scoutId,name:f.scoutName,patrol:f.patrol},pts:0,found:0};
+    scores[f.scoutId].pts+=(f.points||0);
+    scores[f.scoutId].found+=1;
+  });
+  const sorted=Object.values(scores).sort((a,b)=>b.pts-a.pts||b.found-a.found);
+  const sub=document.getElementById('lb-sub');
+  if(sub) sub.textContent=`${sorted.length} scout${sorted.length!==1?'s':''} · ${finds.length} find${finds.length!==1?'s':''} total`;
+  if(!sorted.length){el.innerHTML=`<div class="empty"><div class="ei">🏅</div><p>No scouts yet.<br>Be the first to join!</p></div>`;return;}
+  const emoji=['🥇','🥈','🥉'];
+  el.innerHTML=sorted.map((e,i)=>{
+    const me=currentScout&&e.scout.id===currentScout.id;
+    const ini=(e.scout.name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    return `<div class="lb-row${me?' me':''}">
+      <div class="lb-rank">${emoji[i]||(i+1)}</div>
+      <div class="lb-av">${esc(ini)}</div>
+      <div>
+        <div class="lb-name">${esc(e.scout.name)}${me?' <span style="color:var(--orange);font-size:11px">(you)</span>':''}</div>
+        <div class="lb-patrol">${esc(e.scout.patrol||'')}</div>
+      </div>
+      <div class="lb-right">
+        <div class="lb-pts">${e.pts}</div>
+        <div class="lb-found">${e.found} found</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CACHE MODAL
+// ═══════════════════════════════════════════════════════════════
+function openModal(id) {
+  const cache=caches.find(c=>c.id===id); if(!cache) return;
+  activeCacheId=id;
+  const found=iFound(id);
+  const firstBonus=!finds.some(f=>f.cacheId===id);
+  setText('m-name',cache.name);
+  document.getElementById('m-clue').textContent=cache.clue;
+  setText('m-pts',`${cache.points} pts${firstBonus&&!found?' + 10 first-finder bonus!':''}`);
+  document.getElementById('m-ico').textContent=found?'✅':'🎯';
+  const logSec=document.getElementById('m-log-sec');
+  const btn=document.getElementById('found-btn');
+  const note=document.getElementById('found-note');
+  if (found) {
+    logSec.style.display='none'; btn.textContent='✅ Already found!'; btn.disabled=true; if(note) note.textContent='';
+  } else {
+    logSec.style.display='block'; document.getElementById('log-note').value='';
+    btn.textContent='📍 Too far away'; btn.disabled=true; if(note) note.textContent='Move within 15 metres to unlock';
+  }
+  document.getElementById('cache-modal').classList.add('open');
+  updateModalDist();
+}
+function updateModalDist() {
+  if (!activeCacheId) return;
+  const cache=caches.find(c=>c.id===activeCacheId); if(!cache||iFound(activeCacheId)) return;
+  if (!myPos) return;
+  const d=Math.round(dist(myPos.lat,myPos.lng,cache.lat,cache.lng));
+  const dot=document.getElementById('m-dot');
+  const btn=document.getElementById('found-btn');
+  const note=document.getElementById('found-note');
+  setText('m-dist',d<1000?d+'m':(d/1000).toFixed(1)+'km');
+  if (d<=15) {
+    dot.className='gps-dot close'; setText('m-lbl',"You're right there!");
+    btn.textContent='🎉 I Found It!'; btn.disabled=false; if(note) note.textContent='';
+  } else if (d<=60) {
+    dot.className='gps-dot near'; setText('m-lbl','Getting warm…');
+    btn.textContent=`📍 ${d}m away`; btn.disabled=true; if(note) note.textContent='Move within 15 metres to unlock';
+  } else {
+    dot.className='gps-dot'; setText('m-lbl','Navigate to the cache');
+    btn.textContent=`📍 ${d}m away`; btn.disabled=true; if(note) note.textContent='Move within 15 metres to unlock';
+  }
+}
+function maybeClose(e) { if(e.target===document.getElementById('cache-modal')) closeModal(); }
+function closeModal() { document.getElementById('cache-modal').classList.remove('open'); activeCacheId=null; }
+
+// ═══════════════════════════════════════════════════════════════
+//  LOG FIND
+// ═══════════════════════════════════════════════════════════════
+async function logFind() {
+  if (!activeCacheId||!currentScout) return;
+  const cache=caches.find(c=>c.id===activeCacheId); if(!cache) return;
+  const first=!finds.some(f=>f.cacheId===activeCacheId);
+  const note=document.getElementById('log-note').value.trim();
+  const pts=cache.points+(first?10:0);
+  const find={ scoutId:currentScout.id, scoutName:currentScout.name, patrol:currentScout.patrol,
+    cacheId:cache.id, cacheName:cache.name, note, time:new Date().toISOString(), points:pts, firstFind:first };
+  closeModal();
+  await writeFind(find);
+  toast(first?`🥇 First finder! +${pts} points!`:`✅ Logged! +${pts} points!`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ADMIN
+// ═══════════════════════════════════════════════════════════════
+function refreshAdmin() {
+  const total=scouts.length, tf=finds.length, tc=caches.length;
+  const pct=total>0&&tc>0?Math.min(Math.round((tf/(total*tc))*100),100):0;
+  setText('s-scouts',total); setText('s-finds',tf); setText('s-caches',tc); setText('s-pct',pct+'%');
+  // Recent finds
+  const rl=document.getElementById('recent-list'); if(rl){
+    const recent=[...finds].sort((a,b)=>b.time.localeCompare(a.time)).slice(0,10);
+    if(!recent.length){rl.innerHTML=`<div class="empty" style="padding:14px 0"><div class="ei">🔍</div><p>No finds yet!</p></div>`;}
+    else rl.innerHTML=recent.map(f=>{
+      const t=new Date(f.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+      return `<div class="find-row"><div class="find-time">${t}</div><div class="find-body">
+        <strong>${esc(f.scoutName)}</strong> found <strong>${esc(f.cacheName)}</strong>
+        ${f.firstFind?'<span class="first-pill">1st!</span>':''} +${f.points}pts
+        ${f.note?`<br><em style="color:var(--faint)">"${esc(f.note)}"</em>`:''}
+      </div></div>`;
+    }).join('');
+  }
+  // Cache list
+  const cl=document.getElementById('admin-cache-list'); if(cl){
+    if(!caches.length){cl.innerHTML=`<div style="color:var(--muted);font-size:13px;font-weight:700;padding:8px 0">No caches placed yet.</div>`;return;}
+    cl.innerHTML=caches.map(c=>`<div class="a-card">
+      <div class="a-cache-row">
+        <div class="a-cache-info">
+          <div class="a-cache-name">${esc(c.name)}</div>
+          <div class="a-cache-detail">${renderDots(c.difficulty)} · ${c.points}pts · ${cacheFinds(c.id)} find${cacheFinds(c.id)!==1?'s':''}</div>
+          <div class="a-cache-clue">"${esc(c.clue)}"</div>
+          <div class="a-cache-detail" style="margin-top:3px">📍 ${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}</div>
+        </div>
+        <button class="del-btn" onclick="delCache('${c.id}')" title="Delete">🗑️</button>
+      </div>
+    </div>`).join('');
+  }
+}
+
+async function addCache() {
+  const name=document.getElementById('new-name').value.trim();
+  const clue=document.getElementById('new-clue').value.trim();
+  const lat=parseFloat(document.getElementById('new-lat').value);
+  const lng=parseFloat(document.getElementById('new-lng').value);
+  const diff=parseInt(document.getElementById('new-diff').value);
+  const pts=parseInt(document.getElementById('new-pts').value);
+  if(!name||!clue){toast('Please fill in name and clue!');return;}
+  if(isNaN(lat)||isNaN(lng)){toast('Please enter valid coordinates!');return;}
+  const c={id:'c'+Date.now(),name,clue,lat,lng,difficulty:diff,points:pts,addedAt:new Date().toISOString()};
+  await writeCache(c);
+  if(!fbMode){caches.push(c);refreshAdmin();}
+  document.getElementById('new-name').value='';
+  document.getElementById('new-clue').value='';
+  document.getElementById('new-lat').value='';
+  document.getElementById('new-lng').value='';
+  toast('Cache hidden! 🎯');
+}
+
+function useMyLocation() {
+  if(!navigator.geolocation){toast('GPS not available');return;}
+  toast('Getting location…');
+  navigator.geolocation.getCurrentPosition(pos=>{
+    document.getElementById('new-lat').value=pos.coords.latitude.toFixed(6);
+    document.getElementById('new-lng').value=pos.coords.longitude.toFixed(6);
+    toast('📍 Location captured!');
+  },()=>toast('Could not get location — check GPS is enabled'));
+}
+
+async function delCache(id) {
+  if(!confirm('Delete this cache and all its finds?')) return;
+  await dbDeleteCache(id);
+  if(!fbMode) refreshAdmin();
+  toast('Cache removed.');
+}
+
+async function resetAllFinds() {
+  if(!confirm('Reset ALL finds? Scouts will lose all points.')) return;
+  await dbResetFinds();
+  if(!fbMode) refreshAdmin();
+  toast('All finds reset!');
+}
+
+async function clearAllCaches() {
+  if(!confirm('Delete ALL caches and finds? This cannot be undone.')) return;
+  await dbClearAll();
+  if(!fbMode) refreshAdmin();
+  toast('All caches and finds deleted.');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════════════════
+function toast(msg) {
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),2800);
+}
+
+// Simulate proximity in console (for testing without going outside)
+window.simulateNearby = function() {
+  if (!activeCacheId) { console.log('Open a cache modal first'); return; }
+  const c=caches.find(x=>x.id===activeCacheId); if(!c) return;
+  myPos={lat:c.lat+0.00005,lng:c.lng};
+  updateModalDist();
+  console.log('📍 Simulated position within 10m of',c.name);
+};
+
+// Poll for demo mode changes (Firebase mode uses live listeners)
+setInterval(()=>{
+  if(demoMode){
+    lsLoad();
+    refresh();
+    if(document.getElementById('screen-admin').classList.contains('active')) refreshAdmin();
+  }
+},8000);
+
+
+// ═══════════════════════════════════════════════════════════════
+//  SERVICE WORKER REGISTRATION
+// ═══════════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      console.log('[SW] Registered:', reg.scope);
+    }).catch(err => {
+      console.warn('[SW] Registration failed:', err);
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  OFFLINE QUEUE  (IndexedDB via a tiny wrapper)
+// ═══════════════════════════════════════════════════════════════
+const IDB_NAME = 'scout_offline', IDB_STORE = 'pending_finds';
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(IDB_STORE, {keyPath:'id', autoIncrement:true});
+    req.onsuccess = e => res(e.target.result);
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+async function idbAdd(find) {
+  const db = await idbOpen();
+  return new Promise((res,rej)=>{
+    const tx = db.transaction(IDB_STORE,'readwrite');
+    tx.objectStore(IDB_STORE).add(find);
+    tx.oncomplete = res; tx.onerror = e => rej(e.target.error);
+  });
+}
+async function idbGetAll() {
+  const db = await idbOpen();
+  return new Promise((res,rej)=>{
+    const req = db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).getAll();
+    req.onsuccess = e => res(e.target.result);
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+async function idbClear() {
+  const db = await idbOpen();
+  return new Promise((res,rej)=>{
+    const tx = db.transaction(IDB_STORE,'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete = res; tx.onerror = e => rej(e.target.error);
+  });
+}
+
+// ── ONLINE/OFFLINE EVENTS ────────────────────────────────────
+let wasOffline = !navigator.onLine;
+function updateOnlineStatus() {
+  const offBar  = document.getElementById('offline-bar');
+  const syncBar = document.getElementById('sync-bar');
+  if (!navigator.onLine) {
+    wasOffline = true;
+    if (offBar)  offBar.classList.add('show');
+    if (syncBar) syncBar.classList.remove('show');
+  } else {
+    if (offBar) offBar.classList.remove('show');
+    if (wasOffline) {
+      wasOffline = false;
+      if (syncBar) { syncBar.classList.add('show'); setTimeout(()=>syncBar.classList.remove('show'), 4000); }
+      flushOfflineFinds();
+    }
+  }
+}
+window.addEventListener('online',  updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+updateOnlineStatus();
+
+// ── FLUSH QUEUED FINDS ───────────────────────────────────────
+async function flushOfflineFinds() {
+  const pending = await idbGetAll();
+  if (!pending.length) return;
+  console.log('[Offline] Flushing', pending.length, 'queued finds');
+  for (const find of pending) {
+    delete find.id; // remove IDB autoincrement key
+    try { await writeFind(find); } catch(e) { console.warn('Flush failed for find', e); return; }
+  }
+  await idbClear();
+  toast(`✅ Synced ${pending.length} offline find${pending.length>1?'s':''}!`);
+}
+
+// ── PATCH writeFind to queue when offline ────────────────────
+const _origWriteFind = writeFind;
+window.writeFind = writeFind = async function(find) {
+  if (!navigator.onLine) {
+    // Save to IDB queue
+    await idbAdd({...find, _queued: true});
+    // Optimistically update local state so UI reflects the find immediately
+    find.id = 'offline_' + Date.now();
+    finds.push(find);
+    if (!fbMode) lsSave();
+    refresh();
+    toast('📵 Saved offline — will sync when back online');
+    return;
+  }
+  return _origWriteFind(find);
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  TILE PRE-CACHING
+// ═══════════════════════════════════════════════════════════════
+// Config: set the centre + radius of the area to cache
+// The leader should set these to match the actual hunt location
+const TILE_CACHE_CONFIG = {
+  lat:    51.508,   // ← change to your hunt centre latitude
+  lng:   -0.128,    // ← change to your hunt centre longitude
+  radiusKm: 1.5,    // ← radius in km (1.5km ≈ a large park or small town area)
+  minZoom: 13,
+  maxZoom: 17       // zoom 17 = very detailed street level; each extra zoom level 4× the tiles
+};
+
+function tileCount(cfg) {
+  let count = 0;
+  for (let z = cfg.minZoom; z <= cfg.maxZoom; z++) {
+    const [xMin,yMin] = latLngToTile(cfg.lat + kmToDeg(cfg.radiusKm), cfg.lng - kmToDeg(cfg.radiusKm, cfg.lat), z);
+    const [xMax,yMax] = latLngToTile(cfg.lat - kmToDeg(cfg.radiusKm), cfg.lng + kmToDeg(cfg.radiusKm, cfg.lat), z);
+    count += (Math.abs(xMax-xMin)+1) * (Math.abs(yMax-yMin)+1);
+  }
+  return count;
+}
+function latLngToTile(lat, lng, z) {
+  const x = Math.floor((lng + 180) / 360 * Math.pow(2, z));
+  const y = Math.floor((1 - Math.log(Math.tan(lat * Math.PI/180) + 1/Math.cos(lat * Math.PI/180)) / Math.PI) / 2 * Math.pow(2, z));
+  return [x, y];
+}
+function kmToDeg(km, lat) {
+  if (lat !== undefined) return km / (111.32 * Math.cos(lat * Math.PI/180));
+  return km / 111.32;
+}
+function* tileUrls(cfg) {
+  for (let z = cfg.minZoom; z <= cfg.maxZoom; z++) {
+    const [xMin,yMin] = latLngToTile(cfg.lat + kmToDeg(cfg.radiusKm), cfg.lng - kmToDeg(cfg.radiusKm, cfg.lat), z);
+    const [xMax,yMax] = latLngToTile(cfg.lat - kmToDeg(cfg.radiusKm), cfg.lng + kmToDeg(cfg.radiusKm, cfg.lat), z);
+    for (let x = Math.min(xMin,xMax); x <= Math.max(xMin,xMax); x++) {
+      for (let y = Math.min(yMin,yMax); y <= Math.max(yMin,yMax); y++) {
+        yield `https://tile.tracestrack.com/topo_en/${z}/${x}/${y}.png?key=${TRACESTRACK_KEY}`;
+      }
+    }
+  }
+}
+
+async function startTileCache() {
+  if (!navigator.onLine) { toast('📵 You need to be online to download tiles'); return; }
+  if (!('serviceWorker' in navigator)) { toast('Service worker not supported in this browser'); return; }
+  const sw = await navigator.serviceWorker.ready;
+  const cfg = TILE_CACHE_CONFIG;
+  const total = tileCount(cfg);
+  const bar   = document.getElementById('tile-cache-bar');
+  const inner = document.getElementById('tile-progress-inner');
+  const label = document.getElementById('tile-cache-label');
+  const btn   = document.getElementById('cache-tiles-btn');
+
+  if (!confirm(`Download ~${total} map tiles for offline use? (~${Math.round(total*8/1024)}MB, may take a minute on slow connections.`)) return;
+
+  bar.style.display = 'block';
+  btn.disabled = true;
+  let done = 0;
+  const CONCURRENCY = 6;
+  const urls = [...tileUrls(cfg)];
+
+  async function fetchOne(url) {
+    try { await fetch(url, {mode:'no-cors'}); } catch {}
+    done++;
+    const pct = Math.round(done/total*100);
+    inner.style.width = pct + '%';
+    label.textContent = `📥 Caching tiles… ${done}/${total} (${pct}%)`;
+  }
+
+  // Process in batches
+  for (let i = 0; i < urls.length; i += CONCURRENCY) {
+    await Promise.all(urls.slice(i, i+CONCURRENCY).map(fetchOne));
+  }
+
+  label.textContent = `✅ ${total} tiles cached — map works offline!`;
+  inner.style.background = 'var(--green)';
+  btn.textContent = '✅ Cached';
+  toast('🗺️ Map tiles saved for offline use!');
+}
+
+</script>
+</body>
+</html>
