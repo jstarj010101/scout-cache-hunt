@@ -640,17 +640,27 @@ function listenFirebase() {
   const { db, ref, onValue } = window.FB;
   onValue(ref(db,'caches'), snap => {
     caches = [];
-    snap.forEach(c => caches.push({ id:c.key, ...c.val() }));
+    snap.forEach(c => {
+      const { id:_ignore, ...data } = c.val() || {}; // discard any stored id field
+      caches.push({ id: c.key, ...data });
+    });
+    console.log('[FB] caches updated:', caches.length, caches.map(c=>c.name));
     refresh();
   });
   onValue(ref(db,'finds'), snap => {
     finds = [];
-    snap.forEach(f => finds.push({ id:f.key, ...f.val() }));
+    snap.forEach(f => {
+      const { id:_ignore, ...data } = f.val() || {};
+      finds.push({ id: f.key, ...data });
+    });
     refresh();
   });
   onValue(ref(db,'scouts'), snap => {
     scouts = [];
-    snap.forEach(s => scouts.push({ id:s.key, ...s.val() }));
+    snap.forEach(s => {
+      const { id:_ignore, ...data } = s.val() || {};
+      scouts.push({ id: s.key, ...data });
+    });
     refresh();
   });
 }
