@@ -662,10 +662,10 @@ const LS = 'scouts_cache_v3';
 function lsLoad() {
   try {
     const d = JSON.parse(localStorage.getItem(LS)) || {};
-    caches  = d.caches  || sampleCaches();
+    caches  = d.caches  || [];
     finds   = d.finds   || [];
     scouts  = d.scouts  || [];
-  } catch { caches=sampleCaches(); finds=[]; scouts=[]; }
+  } catch { caches=[]; finds=[]; scouts=[]; }
 }
 function lsSave() {
   try { localStorage.setItem(LS, JSON.stringify({caches,finds,scouts})); } catch {}
@@ -682,15 +682,30 @@ function sampleCaches() {
 //  DATA WRITE HELPERS
 // ═══════════════════════════════════════════════════════════════
 async function writeScout(s) {
-  if (fbMode) { const {db,ref,set}=window.FB; await set(ref(db,`scouts/${s.id}`),s); }
+  if (fbMode) { const {db,ref,set}=window.FB; const {id,...data}=s; await set(ref(db,`scouts/${s.id}`),data); }
   else { const i=scouts.findIndex(x=>x.id===s.id); if(i>=0)scouts[i]=s; else scouts.push(s); lsSave(); }
 }
 async function writeCache(c) {
-  if (fbMode) { const {db,ref,set}=window.FB; await set(ref(db,`caches/${c.id}`),c); }
-  else { const i=caches.findIndex(x=>x.id===c.id); if(i>=0)caches[i]=c; else caches.push(c); lsSave(); }
+  if (fbMode) {
+    const {db,ref,set,push}=window.FB;
+    const {id, ...data} = c; // never store id inside the document
+    if (id && !id.startsWith('c_new')) {
+      // Existing cache — update in place
+      await set(ref(db,`caches/${id}`), data);
+    } else {
+      // New cache — Firebase generates the key
+      const newRef = push(ref(db,'caches'));
+      c.id = newRef.key;
+      await set(newRef, data);
+    }
+  } else {
+    const i=caches.findIndex(x=>x.id===c.id);
+    if(i>=0) caches[i]=c; else caches.push(c);
+    lsSave();
+  }
 }
 async function writeFind(f) {
-  if (fbMode) { const {db,ref,push,set}=window.FB; const r=push(ref(db,'finds')); f.id=r.key; await set(r,f); }
+  if (fbMode) { const {db,ref,push,set}=window.FB; const r=push(ref(db,'finds')); f.id=r.key; const {id,...data}=f; await set(r,data); }
   else { f.id='f'+Date.now(); finds.push(f); lsSave(); refresh(); }
 }
 async function dbDeleteCache(id) {
@@ -1042,8 +1057,8 @@ async function addCache() {
   const pts=parseInt(document.getElementById('new-pts').value);
   if(!name||!clue){toast('Please fill in name and clue!');return;}
   if(isNaN(lat)||isNaN(lng)){toast('Please enter valid coordinates!');return;}
-  const c={id:'c'+Date.now(),name,clue,lat,lng,difficulty:diff,points:pts,addedAt:new Date().toISOString()};
-  await writeCache(c);
+  const c={id:'c_new',name,clue,lat,lng,difficulty:diff,points:pts,addedAt:new Date().toISOString()};
+  await writeCache(c); // writeCache assigns the real Firebase ID via push()
   if(!fbMode){caches.push(c);refreshAdmin();}
   document.getElementById('new-name').value='';
   document.getElementById('new-clue').value='';
