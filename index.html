@@ -839,7 +839,7 @@ function startGPS() {
       } else { window.myLocMarker.setLatLng([myPos.lat,myPos.lng]); }
     }
     updateModalDist();
-  },()=>setText('gps-acc','unavailable'),{enableHighAccuracy:true,maximumAge:3000});
+  },()=>setText('gps-acc','unavailable'),{enableHighAccuracy:true,maximumAge:500});
 }
 function stopGPS() {
   if (gpsWatchId) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId=null; }
