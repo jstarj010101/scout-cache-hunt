@@ -827,19 +827,71 @@ function syncMarkers() {
 // ═══════════════════════════════════════════════════════════════
 //  GPS
 // ═══════════════════════════════════════════════════════════════
+// ── GPS position history for smoothing ──────────────────────
+const GPS_MAX_ACCURACY = 40;  // metres — ignore anything worse than this
+const GPS_SMOOTH_COUNT = 5;   // average last N good readings
+const gpsHistory = [];
+
+function applyGPSReading(pos) {
+  const acc = Math.round(pos.coords.accuracy);
+
+  // Discard readings worse than threshold (wild pings)
+  if (acc > GPS_MAX_ACCURACY) {
+    setText('gps-acc', '⚠ ±' + acc + 'm (weak)');
+    return;
+  }
+
+  // Add to history buffer, keep last N
+  gpsHistory.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc });
+  if (gpsHistory.length > GPS_SMOOTH_COUNT) gpsHistory.shift();
+
+  // Weighted average — more accurate readings get higher weight
+  let wLat = 0, wLng = 0, wTotal = 0;
+  gpsHistory.forEach(p => {
+    const w = 1 / (p.acc || 1);  // higher accuracy = higher weight
+    wLat   += p.lat * w;
+    wLng   += p.lng * w;
+    wTotal += w;
+  });
+  myPos = { lat: wLat / wTotal, lng: wLng / wTotal };
+
+  // Show best (lowest) accuracy from recent history
+  const bestAcc = Math.min(...gpsHistory.map(p => p.acc));
+  setText('gps-acc', '±' + bestAcc + 'm');
+
+  if (leafMap) {
+    if (!window.myLocMarker) {
+      window.myLocMarker = L.circleMarker([myPos.lat, myPos.lng], {
+        radius: 9, color: '#7413dc', fillColor: '#ff912a', fillOpacity: .9, weight: 3
+      }).addTo(leafMap);
+    } else {
+      window.myLocMarker.setLatLng([myPos.lat, myPos.lng]);
+    }
+    // Show accuracy circle
+    if (!window.myAccCircle) {
+      window.myAccCircle = L.circle([myPos.lat, myPos.lng], {
+        radius: bestAcc, color: '#7413dc', fillColor: '#7413dc',
+        fillOpacity: 0.08, weight: 1
+      }).addTo(leafMap);
+    } else {
+      window.myAccCircle.setLatLng([myPos.lat, myPos.lng]);
+      window.myAccCircle.setRadius(bestAcc);
+    }
+  }
+  updateModalDist();
+}
+
 function startGPS() {
   if (!navigator.geolocation) return;
-  gpsWatchId = navigator.geolocation.watchPosition(pos=>{
-    myPos={lat:pos.coords.latitude,lng:pos.coords.longitude};
-    const acc=Math.round(pos.coords.accuracy);
-    setText('gps-acc','±'+acc+'m');
-    if (leafMap) {
-      if (!window.myLocMarker) {
-        window.myLocMarker=L.circleMarker([myPos.lat,myPos.lng],{radius:9,color:'#7413dc',fillColor:'#ff912a',fillOpacity:.9,weight:3}).addTo(leafMap);
-      } else { window.myLocMarker.setLatLng([myPos.lat,myPos.lng]); }
+  gpsWatchId = navigator.geolocation.watchPosition(
+    applyGPSReading,
+    () => setText('gps-acc', 'unavailable'),
+    {
+      enableHighAccuracy: true,
+      maximumAge: 0,      // always want a fresh reading, never use cache
+      timeout: 10000
     }
-    updateModalDist();
-  },()=>setText('gps-acc','unavailable'),{enableHighAccuracy:true,maximumAge:500});
+  );
 }
 function stopGPS() {
   if (gpsWatchId) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId=null; }
