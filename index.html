@@ -852,39 +852,48 @@ function syncMarkers() {
 //  GPS
 // ═══════════════════════════════════════════════════════════════
 // ── GPS position history for smoothing ──────────────────────
-const GPS_MAX_ACCURACY = 40;  // metres — ignore anything worse than this
-const GPS_SMOOTH_COUNT = 5;   // average last N good readings
+const GPS_MAX_ACCURACY = 200; // metres — discard only truly wild readings
+const GPS_GOOD_ACCURACY = 40; // metres — "good" threshold for weighted smoothing
+const GPS_SMOOTH_COUNT = 5;   // average last N readings
 const gpsHistory = [];
 
 function applyGPSReading(pos) {
   const acc = Math.round(pos.coords.accuracy);
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
 
-  // Discard readings worse than threshold (wild pings)
+  // Only discard extremely bad readings (e.g. 1km+ cell-tower guesses)
   if (acc > GPS_MAX_ACCURACY) {
-    setText('gps-acc', '⚠ ±' + acc + 'm (weak)');
+    setText('gps-acc', '⚠ ±' + acc + 'm');
     return;
   }
 
+  // Always update immediately so the marker appears on first fix
+  // (don't wait for the smoothing buffer to fill)
+  myPos = { lat, lng };
+
   // Add to history buffer, keep last N
-  gpsHistory.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc });
+  gpsHistory.push({ lat, lng, acc });
   if (gpsHistory.length > GPS_SMOOTH_COUNT) gpsHistory.shift();
 
-  // Weighted average — more accurate readings get higher weight
-  let wLat = 0, wLng = 0, wTotal = 0;
-  gpsHistory.forEach(p => {
-    const w = 1 / (p.acc || 1);  // higher accuracy = higher weight
-    wLat   += p.lat * w;
-    wLng   += p.lng * w;
-    wTotal += w;
-  });
-  myPos = { lat: wLat / wTotal, lng: wLng / wTotal };
+  // Weighted average — more accurate readings count more
+  if (gpsHistory.length > 1) {
+    let wLat = 0, wLng = 0, wTotal = 0;
+    gpsHistory.forEach(p => {
+      const w = 1 / (p.acc || 1);
+      wLat   += p.lat * w;
+      wLng   += p.lng * w;
+      wTotal += w;
+    });
+    myPos = { lat: wLat / wTotal, lng: wLng / wTotal };
+  }
 
-  // Show best (lowest) accuracy from recent history
   const bestAcc = Math.min(...gpsHistory.map(p => p.acc));
-  setText('gps-acc', '±' + bestAcc + 'm');
+  const qualityIcon = bestAcc <= GPS_GOOD_ACCURACY ? '±' : '⚠ ±';
+  setText('gps-acc', qualityIcon + bestAcc + 'm');
 
   if (leafMap) {
-    // Accuracy circle first (below marker)
+    // Accuracy circle first (renders below marker)
     if (!window.myAccCircle) {
       window.myAccCircle = L.circle([myPos.lat, myPos.lng], {
         radius: bestAcc, color: '#7413dc', fillColor: '#7413dc',
@@ -894,7 +903,7 @@ function applyGPSReading(pos) {
       window.myAccCircle.setLatLng([myPos.lat, myPos.lng]);
       window.myAccCircle.setRadius(bestAcc);
     }
-    // Position marker on top — pulsing dot style
+    // Position dot on top
     if (!window.myLocMarker) {
       window.myLocMarker = L.circleMarker([myPos.lat, myPos.lng], {
         radius: 10, color: '#fff', fillColor: '#ff912a',
