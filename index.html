@@ -366,9 +366,9 @@ body::before{
         <label>Your name</label>
         <input type="text" id="login-name" placeholder="e.g. Jamie" autocomplete="off" maxlength="30">
       </div>
-      <div class="field">
-        <label>Patrol or group</label>
-        <input type="text" id="login-patrol" placeholder="e.g. Eagle Patrol · 1st Boxford" autocomplete="off" maxlength="50">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <input type="checkbox" id="remember-name" style="width:18px;height:18px;accent-color:var(--orange);cursor:pointer;flex-shrink:0">
+        <label for="remember-name" style="font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;text-transform:none;letter-spacing:0;margin:0">Remember my name</label>
       </div>
       <button class="btn btn-primary" onclick="loginScout()">Join the Hunt →</button>
       <button class="btn btn-secondary" onclick="promptLeader()">Leader / Admin access</button>
@@ -560,6 +560,20 @@ let scouts  = [];
 // ═══════════════════════════════════════════════════════════════
 //  BOOT
 // ═══════════════════════════════════════════════════════════════
+(function prefillLogin() {
+  const saved = localStorage.getItem('scout_remembered_name');
+  const checked = localStorage.getItem('scout_remember_checked');
+  if (saved && checked) {
+    // Wait for DOM — runs after DOMContentLoaded
+    window.addEventListener('DOMContentLoaded', () => {
+      const nameEl = document.getElementById('login-name');
+      const cbEl   = document.getElementById('remember-name');
+      if (nameEl) nameEl.value = saved;
+      if (cbEl)   cbEl.checked = true;
+    });
+  }
+})();
+
 (function boot() {
   function onFbResult() {
     if (window._fbReady && window.FB) {
@@ -719,17 +733,27 @@ async function dbClearAll() {
 //  AUTH
 // ═══════════════════════════════════════════════════════════════
 async function loginScout() {
-  const name   = document.getElementById('login-name').value.trim();
-  const patrol = document.getElementById('login-patrol').value.trim();
+  const name = document.getElementById('login-name').value.trim();
+  const remember = document.getElementById('remember-name').checked;
   if (!name) { toast('Please enter your name!'); return; }
-  let scout = scouts.find(s => s.name.toLowerCase()===name.toLowerCase() && s.patrol===patrol);
+
+  // Save or clear remembered name
+  if (remember) {
+    localStorage.setItem('scout_remembered_name', name);
+    localStorage.setItem('scout_remember_checked', '1');
+  } else {
+    localStorage.removeItem('scout_remembered_name');
+    localStorage.removeItem('scout_remember_checked');
+  }
+
+  let scout = scouts.find(s => s.name.toLowerCase() === name.toLowerCase());
   if (!scout) {
-    scout = { id:'s'+Date.now(), name, patrol };
+    scout = { id: 's' + Date.now(), name, patrol: '' };
     await writeScout(scout);
     if (!fbMode) scouts.push(scout);
   }
   currentScout = scout;
-  setText('tb-sub', patrol || 'Scouts');
+  setText('tb-sub', 'Scouts');
   showScoutApp();
 }
 
@@ -990,7 +1014,7 @@ function renderLeaderboard() {
       <div class="lb-av">${esc(ini)}</div>
       <div>
         <div class="lb-name">${esc(e.scout.name)}${me?' <span style="color:var(--orange);font-size:11px">(you)</span>':''}</div>
-        <div class="lb-patrol">${esc(e.scout.patrol||'')}</div>
+
       </div>
       <div class="lb-right">
         <div class="lb-pts">${e.pts}</div>
