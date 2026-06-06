@@ -785,7 +785,7 @@ async function promptLeader() {
 function logout() {
   currentScout = null;
   stopGPS();
-  if (leafMap) { leafMap.remove(); leafMap=null; mapMarkers={}; window.myLocMarker=null; }
+  if (leafMap) { leafMap.remove(); leafMap=null; mapMarkers={}; window.myLocMarker=null; window.myAccCircle=null; }
   showScreen('login');
 }
 
@@ -884,22 +884,24 @@ function applyGPSReading(pos) {
   setText('gps-acc', '±' + bestAcc + 'm');
 
   if (leafMap) {
-    if (!window.myLocMarker) {
-      window.myLocMarker = L.circleMarker([myPos.lat, myPos.lng], {
-        radius: 9, color: '#7413dc', fillColor: '#ff912a', fillOpacity: .9, weight: 3
-      }).addTo(leafMap);
-    } else {
-      window.myLocMarker.setLatLng([myPos.lat, myPos.lng]);
-    }
-    // Show accuracy circle
+    // Accuracy circle first (below marker)
     if (!window.myAccCircle) {
       window.myAccCircle = L.circle([myPos.lat, myPos.lng], {
         radius: bestAcc, color: '#7413dc', fillColor: '#7413dc',
-        fillOpacity: 0.08, weight: 1
+        fillOpacity: 0.1, weight: 1, interactive: false
       }).addTo(leafMap);
     } else {
       window.myAccCircle.setLatLng([myPos.lat, myPos.lng]);
       window.myAccCircle.setRadius(bestAcc);
+    }
+    // Position marker on top — pulsing dot style
+    if (!window.myLocMarker) {
+      window.myLocMarker = L.circleMarker([myPos.lat, myPos.lng], {
+        radius: 10, color: '#fff', fillColor: '#ff912a',
+        fillOpacity: 1, weight: 3, zIndexOffset: 1000
+      }).addTo(leafMap);
+    } else {
+      window.myLocMarker.setLatLng([myPos.lat, myPos.lng]);
     }
   }
   updateModalDist();
